@@ -26,8 +26,11 @@ ENTRY(Reset_Handler)
  * binutils size command.
  */
 _heap_size = 0;    /* required amount of heap  */
-_stack_size = 0;   /* required amount of stack */
+_stack_size = 1K;   /* required amount of stack for MSP*/
 
+_process_stack_64_size = 64 * 64;
+_process_stack_256_size = 256 * 16;
+_process_stack_1KB_size = 1K * 4;
 /*
  * The stack starts at the end of RAM and grows downwards. Full-descending
  * stack; decrement first, then store.
@@ -142,26 +145,65 @@ SECTIONS
         __bss_end__ = _ebss;
     } >ram
 
-    _end = .;
+
     /*
      * Reserve memory for heap and stack. The linker will issue an error if
      * there is not enough memory.
      */
-    ._heap :
+    ._heap (NOLOAD):
     {
         . = ALIGN(4);
+        _heap_start = .;
         . = . + _heap_size;
+        _heap_end = .;
         . = ALIGN(4);
     } >ram
-    ._stack :
+
+
+    .pool_64 (NOLOAD):
+    {
+        . = ALIGN(64);
+        _pool_64_start = .;
+        . = . + _process_stack_64_size;
+        _pool_64_end = .;
+        . = ALIGN(64);
+    } >ram
+    .pool_256 (NOLOAD):
+    {
+        . = ALIGN(256);
+        _pool_256_start = .;
+        . = . + _process_stack_256_size;
+        _pool_256_end = .;
+        . = ALIGN(256);
+    } >ram
+    .pool_1KB (NOLOAD):
+    {
+        . = ALIGN(1024);
+        _pool_1KB_start = .;
+        . = . + _process_stack_1KB_size;
+        _pool_1KB_end = .;
+        . = ALIGN(1024);
+    } >ram
+
+
+    ._stack (NOLOAD):
     {
         . = ALIGN(4);
         . = . + _stack_size;
         . = ALIGN(4);
+        _stack_end = .;
     } >ram
+
+    _end = .;
 }
 
+ASSERT(_end <= ORIGIN(ram) + LENGTH(ram), "RAM overflow: data exceeds RAM size")
+ASSERT(_sbss >= _edata, ".bss overlaps with .data — invalid layout")
+ASSERT(_estack <= ORIGIN(ram) + LENGTH(ram), "MSP initial value (_estack) is outside RAM")
+
+
 /* Nice to have */
+PROVIDE(__stack_start = _estack);
 __isr_vector_size__ = SIZEOF(.isr_vector);
 __text_size__ = SIZEOF(.text);
 __data_size__ = SIZEOF(.data);
