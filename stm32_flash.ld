@@ -28,9 +28,35 @@ ENTRY(Reset_Handler)
 _heap_size = 0;    /* required amount of heap  */
 _stack_size = 1K;   /* required amount of stack for MSP*/
 
-_process_stack_64_size = 64 * 64;
-_process_stack_256_size = 256 * 16;
-_process_stack_1KB_size = 1K * 4;
+/* Stack block sizes */
+STACK_BLOCK_SIZE_S = 128;
+STACK_BLOCK_SIZE_M = 512;
+STACK_BLOCK_SIZE_L = 1024;
+
+/* Stack block counts */
+STACK_BLOCK_COUNT_S = 20;
+STACK_BLOCK_COUNT_M = 8;
+STACK_BLOCK_COUNT_L = 4;
+
+/* Stack pool sizes */
+_stack_pool_s_size = STACK_BLOCK_SIZE_S * STACK_BLOCK_COUNT_S;
+_stack_pool_m_size = STACK_BLOCK_SIZE_M * STACK_BLOCK_COUNT_M;
+_stack_pool_l_size = STACK_BLOCK_SIZE_L * STACK_BLOCK_COUNT_L;
+
+PROVIDE(__stack_block_size_s = STACK_BLOCK_SIZE_S);
+PROVIDE(__stack_block_size_m = STACK_BLOCK_SIZE_M);
+PROVIDE(__stack_block_size_l = STACK_BLOCK_SIZE_L);
+
+PROVIDE(__stack_block_count_s = STACK_BLOCK_COUNT_S);
+PROVIDE(__stack_block_count_m = STACK_BLOCK_COUNT_M);
+PROVIDE(__stack_block_count_l = STACK_BLOCK_COUNT_L);
+
+PROVIDE(__total_process_slots = STACK_BLOCK_COUNT_S + STACK_BLOCK_COUNT_M + STACK_BLOCK_COUNT_L);
+
+ASSERT(((STACK_BLOCK_COUNT_S + STACK_BLOCK_COUNT_M + STACK_BLOCK_COUNT_L) &
+       ((STACK_BLOCK_COUNT_S + STACK_BLOCK_COUNT_M + STACK_BLOCK_COUNT_L) - 1)) == 0,
+       "Total number of stack blocks is not a power of 2");
+
 /*
  * The stack starts at the end of RAM and grows downwards. Full-descending
  * stack; decrement first, then store.
@@ -160,29 +186,28 @@ SECTIONS
     } >ram
 
 
-    .pool_64 (NOLOAD):
+.pool_s (NOLOAD) :
     {
-        . = ALIGN(64);
-        _pool_64_start = .;
-        . = . + _process_stack_64_size;
-        _pool_64_end = .;
-        . = ALIGN(64);
+        . = ALIGN(STACK_BLOCK_SIZE_S);
+        _pool_s_start = .;
+        . = . + _stack_pool_s_size;
+        _pool_s_end = .;
     } >ram
-    .pool_256 (NOLOAD):
+
+    .pool_m (NOLOAD) :
     {
-        . = ALIGN(256);
-        _pool_256_start = .;
-        . = . + _process_stack_256_size;
-        _pool_256_end = .;
-        . = ALIGN(256);
+        . = ALIGN(STACK_BLOCK_SIZE_M);
+        _pool_m_start = .;
+        . = . + _stack_pool_m_size;
+        _pool_m_end = .;
     } >ram
-    .pool_1KB (NOLOAD):
+
+    .pool_l (NOLOAD) :
     {
-        . = ALIGN(1024);
-        _pool_1KB_start = .;
-        . = . + _process_stack_1KB_size;
-        _pool_1KB_end = .;
-        . = ALIGN(1024);
+        . = ALIGN(STACK_BLOCK_SIZE_L);
+        _pool_l_start = .;
+        . = . + _stack_pool_l_size;
+        _pool_l_end = .;
     } >ram
 
 

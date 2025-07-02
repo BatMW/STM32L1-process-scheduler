@@ -1,6 +1,7 @@
 #ifndef PROCESS_H
 #define PROCESS_H
 #include <stdint.h>
+#include "pool_allocator.h"
 
 //STATUS FLAGS
 #define PROC_STATE_RUNNING  (1 << 0)
@@ -9,8 +10,7 @@
 #define PROC_STATE_READY    (1 << 3)
 #define PROC_STATE_WAITING  (1 << 4)
 #define PROC_STATE_DETACHED (1 << 5)
-#define PROC_STATE_FREE     (1 << 6)
-#define PROC_WILL_RETURN    (1 << 7)
+// Top 2 bits, could store the priority of the process
 
 #define true 1
 #define false 0
@@ -27,29 +27,41 @@ typedef struct __attribute__((packed)) Process{
     uint8_t unused;
 
     Entry_func func;
+    void* args;
     void* ret;
 
     uint32_t* stack_ptr;
-    uint32_t* stack_base;
+    uint32_t* mem_base;
+    uint32_t mem_size;
 } Process;
 
 _Static_assert(sizeof(Process) % 4 == 0, "Process struct not 4-byte aligned");
 
+typedef struct Process_form{
+    Entry_func func;
+    uint8_t priority; // >= My priority ?
+    Allocator process_memory_allocator;
+    void* args;
+    void* ret;
+} Process_form;
 
-typedef struct __attribute__((packed)) Stack_frame{
-    // Stored when invoking exception
-    // Old SP---->
-    uint32_t xPSR;
-    uint32_t PC;
-    uint32_t LR;
-    uint32_t r12;
-    uint32_t r3;
-    uint32_t r2;
+typedef struct __attribute__((packed)) Interrupt_stack_frame {
+    uint32_t r0;     // lowest <---- SP after interrupt
     uint32_t r1;
-    uint32_t r0; // <---- SP after interrupt
+    uint32_t r2;
+    uint32_t r3;
+    uint32_t r12;
+    uint32_t LR;
+    uint32_t PC;
+    uint32_t xPSR;   // highest
+    // xPSR : [31 NZCVQ 27 | 26 ICI/IT 25| 24 T | 23 Reserved 16 | 15 ICI/IT   10|9|8 ISR Number 0]
+    // Old SP---->
+    // ^ Stored when invoking exception
+} Interrupt_stack_frame;
 
-    // Stored when context switching
-    uint32_t r11;
+typedef struct __attribute__((packed)) Context_stack_frame{
+
+    uint32_t r11;    // lowest <---- SP after context switch
     uint32_t r10;
     uint32_t r9;
     uint32_t r8;
@@ -57,12 +69,24 @@ typedef struct __attribute__((packed)) Stack_frame{
     uint32_t r6;
     uint32_t r5;
     uint32_t r4;
-}Stack_frame;
 
-_Static_assert(sizeof(Stack_frame) % 4 == 0, "Stack_frame struct not 4-byte aligned");
+    uint32_t r0;     //<---- SP after interrupt
+    uint32_t r1;
+    uint32_t r2;
+    uint32_t r3;
+    uint32_t r12;
+    uint32_t LR;
+    uint32_t PC;
+    uint32_t xPSR;   // highest
+    // xPSR : [31 NZCVQ 27 | 26 ICI/IT 25| 24 T | 23 Reserved 16 | 15 ICI/IT   10|9|8 ISR Number 0]
+    // Old SP---->
+    // ^ Stored when invoking exception
+}Context_stack_frame;
 
+_Static_assert(sizeof(Interrupt_stack_frame) % 4 == 0, "Stack_frame struct not 4-byte aligned");
+_Static_assert(sizeof(Context_stack_frame) % 4 == 0, "Stack_frame struct not 4-byte aligned");
 
-uint8_t exec(Entry_func func);
+int32_t exec(Process_form* form);
 
 bool detach(uint8_t pid);
 

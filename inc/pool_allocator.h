@@ -7,7 +7,7 @@
 #define false 0
 #define bool uint8_t
 
-typedef enum {ALLOC_64, ALLOC_256, ALLOC_1KB} Allocator;
+typedef enum {ALLOC_S, ALLOC_M, ALLOC_L} Allocator;
 
 struct MEM_Pool_Memory_Block{
   struct MEM_Pool_Memory_Block* next;
@@ -20,13 +20,13 @@ struct MEM_Pool_Allocator{
   uint8_t* base;
 };
 
-void MEM_procss_pool_allocator_init(void);
+void MEM_process_pool_allocator_init(void);
 
-void* MEM_procss_pool_allocator_alloc(Allocator alloc_type);
+void* MEM_process_pool_allocator_alloc(Allocator alloc_type);
 
-bool MEM_procss_pool_allocator_free(Allocator alloc_type, void* ptr);
+bool MEM_process_pool_allocator_free(Allocator alloc_type, void* ptr);
 
-void MEM_procss_pool_allocator_reset(Allocator alloc_type);
+void MEM_process_pool_allocator_reset(Allocator alloc_type);
 
 
 
