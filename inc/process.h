@@ -10,7 +10,8 @@
 #define PROC_STATE_READY    (1 << 3)
 #define PROC_STATE_WAITING  (1 << 4)
 #define PROC_STATE_DETACHED (1 << 5)
-// Top 2 bits, could store the priority of the process
+#define PROC_STATE_SLEEPING (1 << 6)
+// 1 more bit
 
 #define true 1
 #define false 0
@@ -20,11 +21,10 @@
 typedef void* (*Entry_func)(void* args);
 
 
-typedef struct __attribute__((packed)) Process{
+typedef struct  Process{
     uint8_t parent_pid;
     uint8_t status; //bitfield
     uint8_t priority;
-    uint8_t unused;
 
     Entry_func func;
     void* args;
@@ -32,14 +32,13 @@ typedef struct __attribute__((packed)) Process{
 
     uint32_t* stack_ptr;
     uint32_t* mem_base;
-    uint32_t mem_size;
+    Allocator mem_size;
 } Process;
 
-_Static_assert(sizeof(Process) % 4 == 0, "Process struct not 4-byte aligned");
 
 typedef struct Process_form{
     Entry_func func;
-    uint8_t priority; // >= My priority ?
+    uint8_t priority; // >= Current process priority?
     Allocator process_memory_allocator;
     void* args;
     void* ret;
@@ -91,5 +90,9 @@ int32_t exec(Process_form* form);
 bool detach(uint8_t pid);
 
 void wait(uint8_t pid);
+
+void sleep_ticks(uint32_t ticks);
+
+void yield(void);
 
 #endif
