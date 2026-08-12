@@ -139,7 +139,7 @@ static int32_t running_process;
 
 typedef struct Unordered_sleep_list{
     uint8_t count;
-    uint8_t ticks_left[NR_PROC_ALLOWED];
+    uint32_t ticks_left[NR_PROC_ALLOWED];
     uint8_t pids[NR_PROC_ALLOWED];
 } Unordered_sleep_list;
 
@@ -150,7 +150,7 @@ static inline void sleep_list_init(Unordered_sleep_list* list){
     }
 }
 
-static inline bool sleep_list_add(Unordered_sleep_list* list, const uint8_t pid, const uint8_t ticks){
+static inline bool sleep_list_add(Unordered_sleep_list* list, const uint8_t pid, const uint32_t ticks){
     if(list->count >= NR_PROC_ALLOWED){
         return false;
     }
@@ -164,7 +164,9 @@ static void sleep_list_decrement_and_ready(Unordered_sleep_list* list){
     for(uint32_t i = 0; i<list->count; ++i){
         list->ticks_left[i]--;
         if(list->ticks_left[i] == 0){
-            pid_enqueue(&ready_qs[processes[list->pids[i]].priority], list->pids[i]);
+            uint8_t pid = list->pids[i];
+            processes[pid].status &= ~PROC_STATE_SLEEPING;
+            pid_enqueue(&ready_qs[processes[pid].priority], pid);
 
             list->ticks_left[i] = list->ticks_left[list->count-1];
             list->pids[i] = list->pids[list->count-1];
@@ -417,16 +419,17 @@ void SVC_Handler_C(Interrupt_stack_frame* stack){
             break;
         case SYSCALL_SLEEP:
             //put in wait_q
-            sleep_list_add(&sleep_list, running_process, *(uint8_t*)req->arg);
+            sleep_list_add(&sleep_list, running_process, *(uint32_t*)req->arg);
             // TODO: remove running_process from ready queue
             processes[running_process].status |= PROC_STATE_SLEEPING;
 
             //force a context switch
-            PendSV_Handler();
+            SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
             break;
         case SYSCALL_YIELD:
             //force a context switch
-            PendSV_Handler();
+            SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
+;
             break;
         default:
             stack->r0 = -1;
@@ -495,7 +498,7 @@ void wait(uint8_t pid){
 
 void yield(void){
      Syscall_Request req = {
-        .type = SYSCALL_SLEEP,
+        .type = SYSCALL_YIELD,
         .arg = NULL,
     };
 
