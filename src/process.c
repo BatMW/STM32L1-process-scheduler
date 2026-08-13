@@ -209,7 +209,8 @@ void process_scheduler_init(void){
     // TODO: Set priority of PendSV_IRQn to 0xFF (PendSV = context switch entry IRQ)
     //       - Set priority of TIM2_IRQn to something higher (TIM2 = time for context switch)
 
-
+    NVIC_SetPriority(PendSV_IRQn, 0xFF);
+    NVIC_SetPriority(TIM2_IRQn, 0xFE); // higher so that user can decide if higher/lower?
 
 }
 
@@ -305,9 +306,17 @@ void process_exit(void){
 int32_t syscall_exec(Process_form* form){
     // TODO: Check if the function is in the allowed functions table?
 
-    if(form->priority < processes[running_process].priority || form->priority >= NR_READY_QS){
+    // NOTE: running_process == -1 implies that exec() is called before starting the scheduler
+    // ie by user start up code.
+    if(running_process != -1){
+        if(form->priority < processes[running_process].priority){
+            return -1;
+        }
+    }
+    if(form->priority >= NR_READY_QS){
         return -1;
     }
+
     uint32_t* mem_base = NULL;
     CRITICAL_SECTION(
         mem_base = (uint32_t*)MEM_process_pool_allocator_alloc(form->process_memory_allocator);

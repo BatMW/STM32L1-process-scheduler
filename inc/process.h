@@ -85,6 +85,9 @@ typedef struct __attribute__((packed)) Context_stack_frame{
 _Static_assert(sizeof(Interrupt_stack_frame) % 4 == 0, "Stack_frame struct not 4-byte aligned");
 _Static_assert(sizeof(Context_stack_frame) % 4 == 0, "Stack_frame struct not 4-byte aligned");
 
+
+void process_scheduler_init(void);
+
 int32_t exec(Process_form* form);
 
 bool detach(uint8_t pid);
