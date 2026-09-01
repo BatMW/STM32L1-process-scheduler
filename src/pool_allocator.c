@@ -12,9 +12,9 @@ extern uint8_t _pool_m_end;
 extern uint8_t _pool_l_start;
 extern uint8_t _pool_l_end;
 
-extern const uint32_t __stack_block_size_s;
-extern const uint32_t __stack_block_size_m;
-extern const uint32_t __stack_block_size_l;
+extern const uint8_t __stack_block_size_s;
+extern const uint8_t __stack_block_size_m;
+extern const uint8_t __stack_block_size_l;
 
 struct MEM_Pool_Allocator pool_s_allocator;
 struct MEM_Pool_Allocator pool_m_allocator;
@@ -40,9 +40,9 @@ static void init_pool(struct MEM_Pool_Allocator* allocator,
 
 
 void MEM_process_pool_allocator_init(void){
-  init_pool(&pool_s_allocator, &_pool_s_start, &_pool_s_end, __stack_block_size_s);
-  init_pool(&pool_m_allocator, &_pool_m_start, &_pool_m_end, __stack_block_size_m);
-  init_pool(&pool_l_allocator, &_pool_l_start, &_pool_l_end, __stack_block_size_l);
+  init_pool(&pool_s_allocator, &_pool_s_start, &_pool_s_end, (size_t)&__stack_block_size_s);
+  init_pool(&pool_m_allocator, &_pool_m_start, &_pool_m_end, (size_t)&__stack_block_size_m);
+  init_pool(&pool_l_allocator, &_pool_l_start, &_pool_l_end, (size_t)&__stack_block_size_l);
 }
 
 

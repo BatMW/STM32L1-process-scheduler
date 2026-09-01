@@ -28,7 +28,7 @@ function debug() {
 }
 
 function gdb() {
-    gdb-multiarch "$BUILD_DIR/$TARGET" -ex "target remote localhost:3333"
+    gdb-multiarch "$BUILD_DIR/$TARGET" -ex "target extended-remote :3333"
 }
 
 function clean() {

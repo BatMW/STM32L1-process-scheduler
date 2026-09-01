@@ -1,8 +1,8 @@
 #include "main.h"
 #include "process.h"
+#include "core_cm3.h"
 #include "stm32l1xx_hal_gpio.h"
 
-TIM_HandleTypeDef htim2;
 
 
 static void MX_GPIO_Init(void)
@@ -73,28 +73,7 @@ void SystemClock_Config(void)
     }
 }
 
-static void MX_TIM2_Init(void)
-{
-    __HAL_RCC_TIM2_CLK_ENABLE();
-
-    htim2.Instance = TIM2;
-    htim2.Init.Prescaler = 4000 - 1;  // 4MHz / 4000 = 1000Hz (~1ms)
-    htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim2.Init.Period = 10 - 1;       // 1000Hz / 10 = 100Hz (~10ms)
-    htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-    htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-
-    if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    //HAL_NVIC_SetPriority(TIM2_IRQn, 0, 0); done in process_init
-    HAL_NVIC_EnableIRQ(TIM2_IRQn);
-}
-
-
-#define SLEEP_TICK 100
+#define SLEEP_TICK 1000
 
 int main(void)
 {
@@ -111,14 +90,23 @@ int main(void)
     .args = &args,
     .ret = NULL
     };
-    exec(&form);
+    int32_t status = exec(&form);
 
-    args.pin = GPIO_PIN_7;
-    args.ticks_sleep = SLEEP_TICK/2; // Blink twice as fast
-    form.args = (void*)&args;
-    exec(&form);
+    if(status == -1){
+        while(1){}
+    }
 
-    MX_TIM2_Init(); //this should cause the first TIM2_IRQ which will cause PendSV
+    struct Blink_Led_Args args2 = args;
+    Process_form form2 = form;
+    args2.pin = GPIO_PIN_7;
+    args2.ticks_sleep = SLEEP_TICK/2; // Blink twice as fast
+    form2.args = (void*)&args2;
+    status = exec(&form2);
+
+    if(status == -1){
+        while(1){}
+    }
+    process_scheduler_start();
     while (1)
     {
         // MCU sleeps until interrupt

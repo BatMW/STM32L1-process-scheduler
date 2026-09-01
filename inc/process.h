@@ -59,15 +59,15 @@ typedef struct __attribute__((packed)) Interrupt_stack_frame {
 } Interrupt_stack_frame;
 
 typedef struct __attribute__((packed)) Context_stack_frame{
-
-    uint32_t r11;    // lowest <---- SP after context switch
-    uint32_t r10;
-    uint32_t r9;
-    uint32_t r8;
-    uint32_t r7;
-    uint32_t r6;
-    uint32_t r5;
     uint32_t r4;
+    uint32_t r5;
+    uint32_t r6;
+    uint32_t r7;
+    uint32_t r8;
+    uint32_t r9;
+    uint32_t r10;
+    uint32_t r11;
+    uint32_t exc_return;
 
     uint32_t r0;     //<---- SP after interrupt
     uint32_t r1;
@@ -88,6 +88,7 @@ _Static_assert(sizeof(Context_stack_frame) % 4 == 0, "Stack_frame struct not 4-b
 
 void process_scheduler_init(void);
 
+void process_scheduler_start(void);
 int32_t exec(Process_form* form);
 
 bool detach(uint8_t pid);

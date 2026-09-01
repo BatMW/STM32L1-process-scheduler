@@ -8,9 +8,9 @@
 #include "pool_allocator.h"
 
 
-extern const uint32_t __stack_block_size_s;
-extern const uint32_t __stack_block_size_m;
-extern const uint32_t __stack_block_size_l;
+extern const uint8_t __stack_block_size_s;
+extern const uint8_t __stack_block_size_m;
+extern const uint8_t __stack_block_size_l;
 
 #define true 1
 #define false 0
@@ -139,7 +139,7 @@ static int32_t running_process;
 
 typedef struct Unordered_sleep_list{
     uint8_t count;
-    uint32_t ticks_left[NR_PROC_ALLOWED];
+    int32_t ticks_left[NR_PROC_ALLOWED];
     uint8_t pids[NR_PROC_ALLOWED];
 } Unordered_sleep_list;
 
@@ -147,23 +147,27 @@ static inline void sleep_list_init(Unordered_sleep_list* list){
     list->count = 0;
     for(uint32_t i=0; i<NR_PROC_ALLOWED; ++i){
         list->pids[i] = 0;
+        list->ticks_left[i] = 0;
     }
 }
 
-static inline bool sleep_list_add(Unordered_sleep_list* list, const uint8_t pid, const uint32_t ticks){
+static inline bool sleep_list_add(Unordered_sleep_list* list, const uint8_t pid, const int32_t ticks){
+    CRITICAL_SECTION(
     if(list->count >= NR_PROC_ALLOWED){
         return false;
     }
     list->pids[list->count] = pid;
     list->ticks_left[list->count] = ticks;
     list->count++;
+    );
     return true;
 }
 
-static void sleep_list_decrement_and_ready(Unordered_sleep_list* list){
+static void sleep_list_decrement_and_ready(Unordered_sleep_list* list, uint32_t decrement){
+    CRITICAL_SECTION(
     for(uint32_t i = 0; i<list->count; ++i){
-        list->ticks_left[i]--;
-        if(list->ticks_left[i] == 0){
+        list->ticks_left[i]-= decrement;
+        if(list->ticks_left[i] <= 0){
             uint8_t pid = list->pids[i];
             processes[pid].status &= ~PROC_STATE_SLEEPING;
             pid_enqueue(&ready_qs[processes[pid].priority], pid);
@@ -174,6 +178,7 @@ static void sleep_list_decrement_and_ready(Unordered_sleep_list* list){
             i--; //NOTE: need to check new value at current position
         }
     }
+    );
 }
 static Unordered_sleep_list sleep_list;
 
@@ -184,34 +189,59 @@ __attribute__((noreturn)) static void idle_process_func(void){
     }
 }
 
+
+static volatile uint32_t generated_ticks;
+
 void process_scheduler_init(void){
     MEM_process_pool_allocator_init();
 
     idle_process.mem_base = MEM_process_pool_allocator_alloc(ALLOC_S);
-    idle_process.mem_size = __stack_block_size_s;
-    idle_process.stack_ptr = (uint32_t*)((uint8_t*)idle_process.mem_base + idle_process.mem_size - sizeof(Context_stack_frame));
-    Context_stack_frame* sf = (Context_stack_frame*)idle_process.stack_ptr;
-    *sf = (const Context_stack_frame){0};
+    idle_process.mem_size = (size_t)&__stack_block_size_s;
+    idle_process.stack_ptr = (uint32_t*)((uint8_t*)idle_process.mem_base + idle_process.mem_size); // -sizeof(Interrupt_Stacdk_Frame)
+    //Interrupt_stack_frame* sf = (Interrupt_stack_frame*)idle_process.stack_ptr;
+    //*sf = (const Interrupt_stack_frame){0};
     /*
     ** NOTE: T-bit (xPSR[24]) must be set or generate a INVSTATE exception.
     ** ref: arm_cortex_m3_r2p0_trm 2-8
-    */
-    sf->xPSR = 0x01000000;
-    sf->PC = (uint32_t)idle_process_func;
+    ** sf->xPSR = 0x01000000;
+    ** sf->PC = (uint32_t)idle_process_func;
+    * */
+/*
+   *sf = (Interrupt_stack_frame){
 
+        .r0 = 0x00000001,     //<---- SP after interrupt
+        .r1 = 0x11111111,
+        .r2 = 0x22222222,
+        .r3 = 0x33333333,
+        .r12 = 0x12121212,
+        .LR = 0xFFFFFFFF,
+        .PC = (uint32_t)idle_process_func,
+        .xPSR = 0x01000000   // highest
+    };
+*/
     for(uint32_t i=0; i < NR_READY_QS; ++i){
         pid_queue_init(&ready_qs[i]);
     }
     running_process = -1;
 
     sleep_list_init(&sleep_list);
+    generated_ticks = 0;
 
     // TODO: Set priority of PendSV_IRQn to 0xFF (PendSV = context switch entry IRQ)
-    //       - Set priority of TIM2_IRQn to something higher (TIM2 = time for context switch)
+    //       - Set priority of SysTick_IRQn to something higher (SysTick = time for context switch)
 
     NVIC_SetPriority(PendSV_IRQn, 0xFF);
-    NVIC_SetPriority(TIM2_IRQn, 0xFE); // higher so that user can decide if higher/lower?
+    NVIC_SetPriority(SysTick_IRQn, 0xFE); // higher so that user can decide if higher/lower?
 
+}
+
+static void SysTick_Init(void) {
+    // Generate an interrupt every 1 ms (1000 Hz) using the core clock
+    // SystemCoreClock holds the processor clock frequency in Hz
+    if (SysTick_Config(SystemCoreClock / 1000)) {
+        // Error: 'ticks' exceeds the maximum 24-bit reload value (0xFFFFFF)
+        while (1);
+    }
 }
 
 void TIM2_IRQHandler(void){
@@ -221,16 +251,27 @@ void TIM2_IRQHandler(void){
     }
 }
 
+void SysTick_Handler(void) {
+    generated_ticks += 1;
+    SCB->ICSR |= SCB_ICSR_PENDSVSET_Msk;
+    // NOTE: The SysTick interrupt flag is automatically cleared by hardware.
+}
+
 // NOTE: Shared between asm and C implementation (process_context_switch, PendSV_Handler)
 __attribute__((used)) __attribute__((visibility("hidden")))
 volatile uint32_t* new_stack_ptr;
+__attribute__((used)) __attribute__((visibility("hidden")))
+volatile uint32_t* old_stack_ptr;
+__attribute__((used)) __attribute__((visibility("hidden")))
+volatile uint32_t* trap_new_process;
+
 
 __attribute__((used)) __attribute__((visibility("hidden")))
  void process_context_switch(void){
     if(running_process == -1){
-        idle_process.stack_ptr = (uint32_t*)new_stack_ptr;
+        idle_process.stack_ptr = (uint32_t*)old_stack_ptr;
     }else{
-        processes[running_process].stack_ptr = (uint32_t*)new_stack_ptr;
+        processes[running_process].stack_ptr = (uint32_t*)old_stack_ptr;
         if((processes[running_process].status & PROC_STATE_SLEEPING) == 0){
             //NOTE: If it is sleeping it just got added to the sleep list
             pid_enqueue(&ready_qs[processes[running_process].priority], running_process);
@@ -240,8 +281,9 @@ __attribute__((used)) __attribute__((visibility("hidden")))
     //   - Enqueue the current process into the correct ready queue
     //   - Move pids from wait_q to correct ready_qs
     //   - Perhaps this is only for tick based wait?
-
-    sleep_list_decrement_and_ready(&sleep_list);
+    uint32_t decrement = generated_ticks;
+    sleep_list_decrement_and_ready(&sleep_list, decrement);
+    generated_ticks -= decrement;
     //select new process to run
     int32_t next_pid = -1;
     CRITICAL_SECTION(
@@ -254,11 +296,14 @@ __attribute__((used)) __attribute__((visibility("hidden")))
     );
     //update new_stack_ptr
     if(next_pid != -1){
-        running_process = next_pid;
+        if(next_pid != running_process){
+           trap_new_process++;
+        }
         new_stack_ptr = processes[next_pid].stack_ptr;
     }else{
         new_stack_ptr = idle_process.stack_ptr;
     }
+    running_process = next_pid; //may be -1 (idle_process) or process id
     //NOTE: PendSV_Handler restores the correct registers
     return;
 }
@@ -266,9 +311,9 @@ __attribute__((used)) __attribute__((visibility("hidden")))
 __attribute__((naked)) void PendSV_Handler(void){
     __asm volatile(
         "mrs r0, psp\n"
-        "stmdb r0!, {r4-r11}\n"
+        "stmdb r0!, {r4-r11, lr}\n"
         "msr psp, r0\n"
-        "ldr r1,=new_stack_ptr\n" // &new_stack_ptr
+        "ldr r1,=old_stack_ptr\n" // &new_stack_ptr
         //"ldr r1, [r1]\n"
         "str r0, [r1]\n" // new_stack_ptr
 
@@ -276,7 +321,7 @@ __attribute__((naked)) void PendSV_Handler(void){
 
         "ldr r0, =new_stack_ptr\n"
         "ldr r0, [r0]\n"
-        "ldmia r0!, {r4-r11}\n"
+        "ldmia r0!, {r4-r11, lr}\n"
         "msr psp, r0\n"
 
         "bx lr\n"
@@ -284,6 +329,32 @@ __attribute__((naked)) void PendSV_Handler(void){
 }
 
 
+void process_scheduler_start(void){
+    Context_stack_frame* sf = (Context_stack_frame*)idle_process.stack_ptr;
+
+    __asm volatile (
+        "msr psp, %0\n"
+        :
+        : "r" (sf)
+        : "r0", "memory"
+    );
+
+
+    // Switch Thread mode to use PSP.
+    __asm volatile (
+        "mrs r0, control\n"
+        "orr r0, r0, #2\n"
+        "msr control, r0\n"
+        "isb\n"
+        :
+        :
+        : "r0", "memory"
+    );
+
+    //start the interrupts for context switching
+    SysTick_Init();
+    idle_process_func();
+}
 
 void process_exit(void){
     Syscall_Request req = {
@@ -350,13 +421,13 @@ int32_t syscall_exec(Process_form* form){
     uint32_t mem_size = 0;
     switch (form->process_memory_allocator){
         case ALLOC_S:
-            mem_size = __stack_block_size_s;
+            mem_size = (size_t)&__stack_block_size_s;
             break;
         case ALLOC_M:
-            mem_size = __stack_block_size_m;
+            mem_size = (size_t)&__stack_block_size_m;
             break;
         case ALLOC_L:
-            mem_size = __stack_block_size_l;
+            mem_size = (size_t)&__stack_block_size_l;
             break;
         default:
             goto error1;
@@ -375,10 +446,36 @@ int32_t syscall_exec(Process_form* form){
     ** NOTE: T-bit (xPSR[24]) must be set or generate a INVSTATE exception.
     ** ref: arm_cortex_m3_r2p0_trm 2-8
      */
+
+    /*
     sf->xPSR = 0x01000000;
     sf->PC = (uint32_t)form->func;
-    sf->LR = (uint32_t)process_exit;
+    sf->lr2 = EXC_RETURN_THREAD_PSP;
+    sf->LR = EXC_RETURN_THREAD_PSP; //(uint32_t)process_exit;
     sf->r0 = (uint32_t)form->args;
+
+
+     */
+        *sf = (Context_stack_frame){
+        .exc_return = EXC_RETURN_THREAD_PSP,
+        .r11 = 0x11011011,    // lowest <---- SP after context switch
+        .r10 = 0x10101010,
+        .r9 = 0x99999999,
+        .r8 = 0x88888888,
+        .r7 = 0x77777777,
+        .r6 = 0x66666666,
+        .r5 = 0x55555555,
+        .r4 = 0x44444444,
+
+        .r0 = (uint32_t)form->args,     //<---- SP after interrupt
+        .r1 = 0x11111111,
+        .r2 = 0x22222222,
+        .r3 = 0x33333333,
+        .r12 = 0x12121212,
+        .LR = (uint32_t)process_exit | 1, // set the thumb bit explicit
+        .PC = (uint32_t)form->func | 1,
+        .xPSR = 0x01000000   // highest
+    };
 
     bool enqueue_ok = false;
     CRITICAL_SECTION(
